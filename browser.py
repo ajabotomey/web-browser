@@ -1,6 +1,6 @@
 from URL import *
 from HTMLParser import *
-from BlockLayout import *
+from DocumentLayout import *
 from PaintTree import *
 import socket
 import ssl
@@ -10,29 +10,6 @@ def print_tree(node, indent=0):
     print(" " * indent, node)
     for child in node.children:
         print_tree(child, indent + 2)
-
-class DocumentLayout:
-    def __init__(self, node):
-        self.x = None
-        self.y = None
-        self.width = None
-        self.height = None
-        self.node = node
-        self.parent = None
-        self.children = []
-    
-    def layout(self):
-        child = BlockLayout(self.node, self, None)
-        self.children.append(child)
-        self.width = WIDTH - 2*HSTEP
-        self.x = HSTEP
-        self.y = VSTEP
-        child.layout()
-        self.height = child.height
-        self.display_list = child.display_list
-
-    def paint(self):
-        return []
 
 class Browser:
     def __init__(self):
@@ -47,7 +24,7 @@ class Browser:
     def load(self, url):
         body = url.request()
         self.nodes = HTMLParser(body).parse()
-        print_tree(self.nodes)
+        #print_tree(self.nodes)
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
         self.display_list = []
