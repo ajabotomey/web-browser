@@ -2,6 +2,9 @@ from URL import *
 from HTMLParser import *
 from DocumentLayout import *
 from PaintTree import *
+from Styles import *
+from Tab import *
+from KillerChrome import *
 import socket
 import ssl
 import tkinter
@@ -11,229 +14,59 @@ def print_tree(node, indent=0):
     for child in node.children:
         print_tree(child, indent + 2)
 
-def tree_to_list(tree, list):
-    list.append(tree)
-    for child in tree.children:
-        tree_to_list(child, list)
-    return list
-
-class CSSParser:
-    def __init__(self, s):
-        self.s = s
-        self.i = 0
-
-    def whitespace(self):
-        while self.i < len(self.s) and self.s[self.i].isspace():
-            self.i += 1
-
-    # Check for colon or semi-colon
-    def literal(self, literal):
-        if not (self.i < len(self.s) and self.s[self.i] == literal):
-            raise Exception("Parsing error")
-        self.i += 1
-
-    # Property names
-    def word(self):
-        start = self.i
-        while self.i < len(self.s):
-            if self.s[self.i].isalnum() or self.s[self.i] in "#-.%":
-                self.i += 1
-            else:
-                break
-        if not (self.i > start):
-            raise Exception("Parsing error")
-        return self.s[start:self.i]
-    
-    # Property-value pairs
-    def pair(self):
-        prop = self.word()
-        self.whitespace()
-        self.literal(":")
-        self.whitespace()
-        val = self.word()
-        return prop.casefold(), val
-
-    def ignore_until(self, chars):
-        while self.i < len(self.s):
-            if self.s[self.i] in chars:
-                return self.s[self.i]
-            else:
-                self.i += 1
-        return None
-    
-    def body(self):
-        pairs = {}
-        while self.i < len(self.s) and self.s[self.i] != "}":
-            try:
-                prop, val = self.pair()
-                pairs[prop.casefold()] = val
-                self.whitespace()
-                self.literal(";")
-                self.whitespace()
-            except Exception:
-                why = self.ignore_until([";", "}"])
-                if why == ";":
-                    self.literal(";")
-                    self.whitespace()
-                else:
-                    break
-        return pairs
-    
-    def selector(self):
-        out = TagSelector(self.word().casefold())
-        self.whitespace()
-        while self.i < len(self.s) and self.s[self.i] != "{":
-            tag = self.word()
-            descendant = TagSelector(tag.casefold())
-            out = DescendantSelector(out, descendant)
-            self.whitespace()
-        return out
-    
-    def parse(self):
-        rules = []
-        while self.i < len(self.s):
-            try:
-                self.whitespace()
-                selector = self.selector()
-                self.literal("{")
-                self.whitespace()
-                body = self.body()
-                self.literal("}")
-                rules.append((selector, body))
-            except Exception:
-                why = self.ignore_until(["}"])
-                if why == "}":
-                    self.literal("}")
-                    self.whitespace()
-                else:
-                    break
-        return rules
-
-class TagSelector:
-    def __init__(self, tag):
-        self.tag = tag
-        self.priority = 1
-
-    def matches(self, node):
-        return isinstance(node, Element) and self.tag == node.tag
-    
-    def __repr__(self):
-        return "TagSelector(tag={}, priority={})".format(
-            self.tag, self.priority)
-    
-class DescendantSelector:
-    def __init__(self, ancestor, descendant):
-        self.ancestor = ancestor
-        self.descendant = descendant
-        self.priority = ancestor.priority + descendant.priority
-    
-    def matches(self, node):
-        if not self.descendant.matches(node): return False
-        while node.parent:
-            if self.ancestor.matches(node.parent): return True
-            node = node.parent
-        return False
-    
-    def __repr__(self):
-        return ("DescendantSelector(ancestor={}, descendant={}, priority={})") \
-            .format(self.ancestor, self.descendant, self.priority)
-    
-INHERITED_PROPERTIES = {
-    "font-size": "16px",
-    "font-style": "normal",
-    "font-weight": "normal",
-    "color": "black",
-}
-
-# Parse Style attribute
-def style(node, rules):
-    node.style = {}
-
-    for property, default_value in INHERITED_PROPERTIES.items():
-        if node.parent:
-            node.style[property] = node.parent.style[property]
-        else:
-            node.style[property] = default_value
-
-    for selector, body in rules:
-        if not selector.matches(node): continue
-        for property, value in body.items():
-            node.style[property] = value
-
-    if isinstance(node, Element) and "style" in node.attributes:
-        pairs = CSSParser(node.attributes["style"]).body()
-        for property, value in pairs.items():
-            node.style[property] = value
-
-    if node.style["font-size"].endswith("%"):
-        if node.parent:
-            parent_font_size = node.parent.style["font-size"]
-        else:
-            parent_font_size = INHERITED_PROPERTIES["font-size"]
-        node_pct = float(node.style["font-size"][:-1]) / 100
-        parent_px = float(parent_font_size[:-2])
-        node.style["font-size"] = str(node_pct * parent_px) + "px"
-
-    for child in node.children:
-        style(child, rules)
-
-def cascade_priority(rule):
-    selector, body = rule
-    return selector.priority
-
-DEFAULT_STYLE_SHEET = CSSParser(open("browser.css").read()).parse()
-
 class Browser:
     def __init__(self):
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(self.window, width=WIDTH, height=HEIGHT, bg="white")
         self.canvas.pack()
 
-        self.scroll = 0
-        self.window.bind("<Down>", self.scrolldown)
-        self.display_list = []
+        self.window.bind("<Down>", self.handle_down)
+        self.window.bind("<Button-1>", self.handle_click)
+        self.window.bind("<Key>", self.handle_key)
+        self.window.bind("<Return>", self.handle_enter)
 
-    def load(self, url):
-        body = url.request()
-        self.nodes = HTMLParser(body).parse()
-
-        #print_tree(self.nodes)
-
-        rules = DEFAULT_STYLE_SHEET.copy()
-        links = [node.attributes["href"]
-                 for node in tree_to_list(self.nodes, [])
-                 if isinstance(node, Element)
-                 and node.tag == "link"
-                 and node.attributes.get("rel") == "stylesheet"
-                 and "href" in node.attributes]
-        for link in links:
-            try:
-                body = url.resolve(link).request()
-            except:
-                continue
-            rules.extend(CSSParser(body).parse())
-        style(self.nodes, sorted(rules, key=cascade_priority))
-
-        self.document = DocumentLayout(self.nodes)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)
-        self.draw()
+        self.tabs = []
+        self.active_tab = None
+        self.killerChrome = KillerChrome(self)
 
     def draw(self):
         self.canvas.delete("all")
-        for cmd in self.display_list:
-            if cmd.top > self.scroll + HEIGHT: continue
-            if cmd.bottom < self.scroll: continue
-            cmd.execute(self.scroll, self.canvas)
+        self.active_tab.draw(self.canvas, self.killerChrome.bottom)
+        for cmd in self.killerChrome.paint():
+            cmd.execute(0, self.canvas)
 
-    def scrolldown(self, e):
-        max_y = max(self.document.height + 2 * VSTEP - HEIGHT, 0)
-        self.scroll = min(self.scroll + SCROLL_STEP, max_y)
+    def handle_click(self, e):
+        if e.y < self.killerChrome.bottom:
+            self.killerChrome.click(e.x, e.y)
+        else:
+            tab_y = e.y - self.killerChrome.tabbar_bottom
+            self.active_tab.click(e.x, tab_y)
         self.draw()
+
+    def handle_down(self, e):
+        self.active_tab.scrolldown()
+        self.draw()
+
+    def handle_key(self, e):
+        if len(e.char) == 0: return
+        if not (0x20 <= ord(e.char) < 0x7f): return
+        self.killerChrome.keypress(e.char)
+        self.draw()
+
+    def handle_enter(self, e):
+        self.killerChrome.enter()
+        self.draw()
+
+    def new_tab(self, url):
+        new_tab = Tab(HEIGHT - self.killerChrome.bottom)
+        new_tab.load(url)
+        self.active_tab = new_tab
+        self.tabs.append(new_tab)
+        self.draw()
+
 
 if __name__ == "__main__":
     import sys
 
-    Browser().load(URL(sys.argv[1]))
+    Browser().new_tab(URL(sys.argv[1]))
     tkinter.mainloop()
