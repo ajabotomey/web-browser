@@ -27,6 +27,8 @@ class Browser:
 
         self.tabs = []
         self.active_tab = None
+        self.focus = None
+        self.address_bar = ""
         self.killerChrome = KillerChrome(self)
 
     def draw(self):
@@ -37,9 +39,12 @@ class Browser:
 
     def handle_click(self, e):
         if e.y < self.killerChrome.bottom:
+            self.focus = None
             self.killerChrome.click(e.x, e.y)
         else:
-            tab_y = e.y - self.killerChrome.tabbar_bottom
+            self.focus = "content"
+            self.killerChrome.blur()
+            tab_y = e.y - self.killerChrome.bottom
             self.active_tab.click(e.x, tab_y)
         self.draw()
 
@@ -50,8 +55,11 @@ class Browser:
     def handle_key(self, e):
         if len(e.char) == 0: return
         if not (0x20 <= ord(e.char) < 0x7f): return
-        self.killerChrome.keypress(e.char)
-        self.draw()
+        if self.killerChrome.keypress(e.char):
+            self.draw()
+        elif self.focus == "content": 
+            self.active_tab.keypress(e.char)
+            self.draw()
 
     def handle_enter(self, e):
         self.killerChrome.enter()

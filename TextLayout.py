@@ -1,15 +1,4 @@
 from DrawText import *
-import tkinter.font
-
-FONTS = {}
-
-def get_font(size, weight, slant):
-    key = (size, weight, slant)
-    if key not in FONTS:
-        font = tkinter.font.Font(size=size, weight=weight, slant=slant)
-        label = tkinter.Label(font = font)
-        FONTS[key] = (font, label)
-    return FONTS[key][0]
 
 class TextLayout:
     def __init__(self, node, word, parent, previous):
@@ -44,3 +33,6 @@ class TextLayout:
     def paint(self):
         color = self.node.style["color"]
         return [DrawText(self.x, self.y, self.word, self.font, color)]
+    
+    def should_paint(self):
+        return True
