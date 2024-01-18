@@ -2,6 +2,8 @@ from CSSParser import *
 from HTMLParser import *
 from DocumentLayout import *
 from Styles import *
+import urllib.parse
+import dukpy
 
 def tree_to_list(tree, list):
     list.append(tree)
@@ -16,12 +18,21 @@ class Tab:
         self.tab_height = tab_height
         self.focus = None
 
-    def load(self, url):
-        body = url.request()
+    def load(self, url, payload = None):
         self.scroll = 0
         self.url = url
         self.history.append(url)
+        body = url.request(payload)
         self.nodes = HTMLParser(body).parse()
+
+        scripts = [node.attributes["src"] for node
+                   in tree_to_list(self.nodes, [])
+                   if isinstance(node, Element)
+                   and node.tag == "script"
+                   and "src" in node.attributes]
+        for script in scripts:
+            body = url.resolve(script).request()
+            print("Script returned: ", dukpy.evaljs(body))
 
         self.rules = DEFAULT_STYLE_SHEET.copy()
         links = [node.attributes["href"]
@@ -75,6 +86,11 @@ class Tab:
                 self.focus = elt
                 elt.is_focused = True
                 return self.render()
+            elif elt.tag == "button":
+                while elt:
+                    if elt.tag == "form" and "action" in elt.attributes:
+                        return self.submit_form(elt)
+                    elt = elt.parent
             elt = elt.parent
 
     def render(self):
@@ -88,3 +104,17 @@ class Tab:
         if self.focus:
             self.focus.attributes["value"] += char
             self.render()
+
+    def submit_form(self, elt):
+        inputs = [node for node in tree_to_list(elt, []) if isinstance(node, Element) and node.tag == "input" and "name" in node.attributes]
+        body = ""
+        for input in inputs:
+            name = input.attributes["name"]
+            value = input.attributes.get("value", "")
+            name = urllib.parse.quote(name)
+            value = urllib.parse.quote(value)
+            body += "&" + name + "=" + value
+        body = body[1:]
+
+        url = self.url.resolve(elt.attributes["action"])
+        self.load(url, body)

@@ -25,7 +25,7 @@ class URL:
             print(" URL was: " + url)
             self.__init__("https://browser.engineering")
 
-    def request(self):
+    def request(self, payload = None):
         s = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP,)
         s.connect((self.host, self.port))
 
@@ -33,11 +33,16 @@ class URL:
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
 
+        method = "POST" if payload else "GET"
 
-        s.send(("GET {} HTTP/1.0\r\n".format(self.path) + \
-                "Host: {}\r\n\r\n".format(self.host)) \
-                    .encode("utf-8"))
-        
+        #s.send(("GET {} HTTP/1.0\r\n".format(self.path) + "Host: {}\r\n\r\n".format(self.host)).encode("utf-8"))
+        body = "{} {} HTTP/1.0\r\n".format(method, self.path)
+        if payload:
+            length = len(payload.encode("utf-8"))
+            body += "Content-Length: {}\r\n".format(length)
+        body += "Host: {}\r\n".format(self.host)
+        body += "\r\n" + (payload if payload else "")
+        s.send(body.encode("utf-8"))
         response = s.makefile("r", encoding="utf-8", newline="\r\n")
 
         statusline = response.readline()
