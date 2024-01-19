@@ -2,6 +2,7 @@ from CSSParser import *
 from HTMLParser import *
 from DocumentLayout import *
 from Styles import *
+from JSContext import *
 import urllib.parse
 import dukpy
 
@@ -30,9 +31,14 @@ class Tab:
                    if isinstance(node, Element)
                    and node.tag == "script"
                    and "src" in node.attributes]
+        self.js = JSContext(self)
         for script in scripts:
             body = url.resolve(script).request()
             print("Script returned: ", dukpy.evaljs(body))
+            try:
+                self.js.run(body)
+            except dukpy.JSRuntimeError as e:
+                print("Script", script, "crashed", e)
 
         self.rules = DEFAULT_STYLE_SHEET.copy()
         links = [node.attributes["href"]
@@ -77,9 +83,11 @@ class Tab:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
+                if self.js.dispatch_event("click", elt): return
                 url = self.url.resolve(elt.attributes["href"])
                 return self.load(url)
             elif elt.tag == "input":
+                if self.js.dispatch_event("click", elt): return
                 elt.attributes["value"] = ""
                 if self.focus:
                     self.focus.is_focused = False
@@ -87,6 +95,7 @@ class Tab:
                 elt.is_focused = True
                 return self.render()
             elif elt.tag == "button":
+                if self.js.dispatch_event("click", elt): return
                 while elt:
                     if elt.tag == "form" and "action" in elt.attributes:
                         return self.submit_form(elt)
@@ -102,10 +111,12 @@ class Tab:
 
     def keypress(self, char):
         if self.focus:
+            if self.js.dispatch_event("keydown", self.focus): return
             self.focus.attributes["value"] += char
             self.render()
 
     def submit_form(self, elt):
+        if self.js.dispatch_event("submit", elt): return
         inputs = [node for node in tree_to_list(elt, []) if isinstance(node, Element) and node.tag == "input" and "name" in node.attributes]
         body = ""
         for input in inputs:
